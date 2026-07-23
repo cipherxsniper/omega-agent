@@ -92,7 +92,7 @@ Return a JSON object with a "steps" array. Each step has:
 
 Return 3-7 steps. Be specific to the actual task.`;
 
-    const planRes = await base44.integrations.Core.InvokeLLM({
+    const planRes = await base44.functions.invoke("groqComplete", {
       prompt: planPrompt,
       response_json_schema: {
         type: "object",
@@ -111,8 +111,8 @@ Return 3-7 steps. Be specific to the actual task.`;
         },
       },
     });
-
-    const planSteps = planRes.steps || [];
+    const planData = planRes.data || planRes;
+    const planSteps = planData.steps || [];
     const created = [];
     for (let i = 0; i < planSteps.length; i++) {
       const s = planSteps[i];
@@ -213,10 +213,11 @@ Return 3-7 steps. Be specific to the actual task.`;
 
       // For browser/search steps in research mode, capture a URL
       if (mode === "research" && (step.tool === "browser" || step.tool === "search")) {
-        const urlStep = await base44.integrations.Core.InvokeLLM({
+        const urlStep = await base44.functions.invoke("groqComplete", {
           prompt: `Generate a realistic search URL for this research step: "${step.title}". Return only the full URL, nothing else.`,
         });
-        const url = typeof urlStep === "string" ? urlStep.trim() : "";
+        const urlData = urlStep.data || urlStep;
+        const url = urlData.result ? urlData.result.trim() : "";
         await updateStep(step.id, { tool_url: url });
       }
 
@@ -251,10 +252,9 @@ Return 3-7 steps. Be specific to the actual task.`;
 
     let response;
     if (mode === "research") {
-      response = await base44.integrations.Core.InvokeLLM({
+      response = await base44.functions.invoke("groqComplete", {
         prompt: userPrompt,
         add_context_from_internet: true,
-        model: "gemini_3_flash",
         response_json_schema: {
           type: "object",
           properties: {
@@ -274,8 +274,9 @@ Return 3-7 steps. Be specific to the actual task.`;
           },
         },
       });
+      response = response.data || response;
     } else {
-      response = await base44.integrations.Core.InvokeLLM({
+      response = await base44.functions.invoke("groqComplete", {
         prompt: userPrompt,
         response_json_schema: {
           type: "object",
@@ -285,6 +286,7 @@ Return 3-7 steps. Be specific to the actual task.`;
           },
         },
       });
+      response = response.data || response;
     }
 
     const responseTime = Date.now() - startTime;

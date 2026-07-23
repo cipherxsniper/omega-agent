@@ -3,14 +3,15 @@ from fastapi import FastAPI, Depends, Security, HTTPException, status
 from fastapi.security.api_key import APIKeyHeader
 from fastapi.middleware.cors import CORSMiddleware
 from api.routes.sync import router as sync_router
+from api.routes.chat import router as chat_router
 
-# API configurations
 API_KEY_NAME = "X-Omega-API-Key"
 api_key_header = APIKeyHeader(name=API_KEY_NAME, auto_error=False)
 
 def get_api_key(header_key: str = Security(api_key_header)):
-    """Simple API Key validation middleware."""
-    secret_key = os.getenv("OMEGA_API_KEY", "omega-super-secret-sync-token")
+    secret_key = os.getenv("OMEGA_API_KEY")
+    if not secret_key:
+        raise HTTPException(status_code=500, detail="OMEGA_API_KEY not configured on server.")
     if header_key == secret_key:
         return header_key
     raise HTTPException(
@@ -20,34 +21,27 @@ def get_api_key(header_key: str = Security(api_key_header)):
 
 def create_app() -> FastAPI:
     app = FastAPI(
-        title="OMEGA AGENT 2-Way Sync Engine",
-        description="Enterprise grade production-ready orchestration synchronization API between Base44 and GitHub.",
+        title="Omega Agent API",
         version="1.0.0",
         docs_url="/docs",
         openapi_url="/openapi.json"
     )
 
-    # Middleware Setup
+    allowed_origins = os.getenv("ALLOWED_ORIGINS", "").split(",") if os.getenv("ALLOWED_ORIGINS") else []
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=["*"],
+        allow_origins=allowed_origins or ["http://localhost:5173"],
         allow_credentials=True,
         allow_methods=["*"],
         allow_headers=["*"],
     )
 
-    # Include routes with security dependency
     app.include_router(sync_router, dependencies=[Depends(get_api_key)])
+    app.include_router(chat_router, dependencies=[Depends(get_api_key)])
 
     @app.get("/health", tags=["system"])
     async def health_check():
-        """Health probe endpoint."""
-        return {
-            "status": "healthy",
-            "uptime": "nominal",
-            "api_key_auth": "enabled",
-            "sync_services": "active"
-        }
+        return {"status": "healthy"}
 
     return app
 
