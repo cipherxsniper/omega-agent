@@ -7,40 +7,8 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <link rel="manifest" href="/omega-agent/manifest.json" />
     <title>Omega Agent</title>
-    <script type="module" crossorigin src="/omega-agent/assets/index-Ck7tQbsH.js"></script>
-    <link rel="stylesheet" crossorigin href="/omega-agent/assets/index-D-5NYTPO.css">
-    <script type="module">
-if (window.self === window.top) {
-  let lastPath = "";
-  function getPageNameFromPath(path) {
-    const segments = path.split("/").filter(Boolean);
-    return segments[0] || null;
-  }
-  function trackPageView() {
-    const path = window.location.pathname;
-    if (path === lastPath) return;
-    lastPath = path;
-    const pageName = getPageNameFromPath(path) || "home";
-    const appId = "";
-    if (!appId) return;
-    fetch(`/api/app-logs/${appId}/log-user-in-app/${pageName}`, {
-      method: "POST",
-    }).catch(() => {});
-  }
-  const originalPushState = history.pushState.bind(history);
-  history.pushState = function (...args) {
-    originalPushState(...args);
-    trackPageView();
-  };
-  const originalReplaceState = history.replaceState.bind(history);
-  history.replaceState = function (...args) {
-    originalReplaceState(...args);
-    trackPageView();
-  };
-  window.addEventListener("popstate", trackPageView);
-  trackPageView();
-}
-</script>
+    <script type="module" crossorigin src="/omega-agent/assets/index-DBSoicPv.js"></script>
+    <link rel="stylesheet" crossorigin href="/omega-agent/assets/index-CbPl6mHG.css">
   </head>
   <body>
     <div id="root"></div>
