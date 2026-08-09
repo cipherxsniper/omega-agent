@@ -377,6 +377,24 @@ def run_agent_task(task_description, max_steps=10, signed_log=None, cwd_hint=Non
 
             if not tool_calls:
                 final_content = message.get("content", "")
+
+                # Guard against silent empty-stop: the model can emit no
+                # tool_calls AND no content, which previously passed through
+                # as a valid "done" with a blank response - no explanation,
+                # no failure report, nothing. Force one more turn instead of
+                # accepting silence as completion, up to a small retry cap
+                # so a persistently-empty model doesn't spin forever.
+                if not final_content.strip() and step < max_steps - 1:
+                    messages.append({
+                        "role": "user",
+                        "content": (
+                            "Your last response was empty. If the task is complete, "
+                            "say so explicitly and summarize what was done. If it is "
+                            "not complete, continue with the next tool call."
+                        ),
+                    })
+                    continue
+
                 narrative_text = final_content  # pristine copy, before any system-appended blocks
 
                 # Ground-truth failure check. The model's own summary is not
