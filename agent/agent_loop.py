@@ -423,9 +423,17 @@ def run_agent_task(task_description, max_steps=10, signed_log=None, cwd_hint=Non
                         or result.get("accepted") is False
                     )
                     if is_failure:
+                        # run_bash failures put the real message in
+                        # output["stderr"], not output["error"] - this was
+                        # falling through to a generic "unspecified failure"
+                        # even when a specific, useful error was available,
+                        # which starves the model of the detail it needs to
+                        # explain what actually happened instead of guessing.
                         err = (
                             output.get("error")
                             if isinstance(output, dict) and output.get("error")
+                            else output.get("stderr").strip()
+                            if isinstance(output, dict) and output.get("stderr", "").strip()
                             else result.get("reason", "unspecified failure")
                         )
                         failed_calls.append(f"- step {entry.get('step')}: {err}")
