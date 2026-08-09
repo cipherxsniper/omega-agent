@@ -232,7 +232,7 @@ class ActionExecutor:
         name = node.action.name
         target = node.action.target
 
-        if name in ("read_file", "write_file", "list_dir") and target:
+        if name in ("read_file", "write_file", "list_dir", "git_status", "git_diff", "git_commit", "git_log") and target:
             if not self._path_allowed(target):
                 return False, {"error": f"Path '{target}' is outside the allowed Omega workspace"}
             # Resolve to an absolute path now that it's confirmed allowed,

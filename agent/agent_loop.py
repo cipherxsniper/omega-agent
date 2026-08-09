@@ -20,7 +20,10 @@ import re
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 sys.path.append(os.path.expanduser('~/.omega/lib'))
 
-from api.groq_client import chat_completion
+try:
+    from api.metered_chat_completion import chat_completion  # OpenRouter metered first
+except Exception:
+    from api.groq_client import chat_completion
 from agent.core.action_engine import Action, ActionNode, ActionExecutor, ActionValidator, SideEffectAnalyzer
 from agent.self_extend import propose_tool
 from lib.omega_proof import sign_event
