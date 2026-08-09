@@ -269,6 +269,14 @@ async def _execute_tool_call(executor, tool_call):
     except json.JSONDecodeError as e:
         return {"error": f"Model sent malformed tool arguments: {e}"}
 
+    # json.loads("null") succeeds and returns None without raising -
+    # args.get(...) below then crashes with AttributeError, not caught
+    # by the except above. Guard explicitly: null/non-dict arguments are
+    # malformed input, same as unparseable JSON, and should fail the same
+    # clean way instead of taking down the whole request.
+    if not isinstance(args, dict):
+        return {"error": f"Model sent non-dict tool arguments: {args!r}"}
+
     if name == "propose_new_tool":
         # Not a normal dispatch action — runs the full test-gated self-extension
         # pipeline instead, synchronously (it's already fast: compile + pytest).
