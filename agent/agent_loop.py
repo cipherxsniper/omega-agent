@@ -314,7 +314,7 @@ def save_session(messages):
         json.dump({"messages": messages, "saved_at": time.time()}, f, indent=2, default=str)
 
 
-def run_agent_task(task_description, max_steps=10, signed_log=None, cwd_hint=None, resume=False):
+def run_agent_task(task_description, max_steps=10, signed_log=None, cwd_hint=None, resume=False, require_plan=False):
     """
     Runs the real tool-use loop synchronously (wraps async internals).
     Returns the full transcript: list of {step, role, content/tool_calls/tool_result}.
@@ -326,6 +326,20 @@ def run_agent_task(task_description, max_steps=10, signed_log=None, cwd_hint=Non
     system = SYSTEM_PROMPT
     if cwd_hint:
         system += f" The current working directory is {cwd_hint}."
+    if require_plan:
+        # Mandatory planning mode, for long/complex autonomous tasks (used
+        # by the background job endpoint). Claude-Code-style: plan before
+        # acting, keep the plan current, verify against it before declaring
+        # done - rather than improvising step by step with no durable plan.
+        system += (
+            " This is a long-running autonomous task. Before taking any "
+            "other action, call write_todos with a full breakdown of every "
+            "step needed to complete this task. As you complete each step, "
+            "call write_todos again to update status. Before your final "
+            "response, call read_todos and confirm every item is actually "
+            "done - do not declare the task complete if any item is not "
+            "reflected as done in the todo state."
+        )
 
     prior = load_session() if resume else None
     if prior and prior.get("messages"):
