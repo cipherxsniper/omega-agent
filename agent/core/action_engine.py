@@ -6,7 +6,7 @@ import py_compile
 import os
 import sys
 sys.path.append(os.path.expanduser('~/.omega/lib'))
-from lib.omega_proof import sign_event
+from agentproof import sign_event
 from typing import Dict, Any, List, Optional, Set
 from dataclasses import dataclass, field
 

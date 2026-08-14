@@ -26,7 +26,7 @@ except Exception:
     from api.groq_client import chat_completion
 from agent.core.action_engine import Action, ActionNode, ActionExecutor, ActionValidator, SideEffectAnalyzer
 from agent.self_extend import propose_tool
-from lib.omega_proof import sign_event
+from agentproof import sign_event
 
 TOOLS = [
     {
