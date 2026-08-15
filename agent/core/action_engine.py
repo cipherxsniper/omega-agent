@@ -370,7 +370,11 @@ class ActionExecutor:
 
         elif name == "grep_search":
             pattern = node.parameters.get("pattern")
-            search_path = target or "."
+            # BUGFIX: same target/parameters mismatch as glob_find above.
+            requested_path = node.parameters.get("path")
+            search_path = requested_path or target or "."
+            if requested_path:
+                search_path = self._resolve_target(search_path)
             if not pattern:
                 return False, {"error": "grep_search requires 'pattern'"}
             try:
@@ -392,10 +396,22 @@ class ActionExecutor:
                 return False, {"error": "glob_find requires 'pattern'"}
             try:
                 import glob as globmod
-                search_root = target or "."
+                # BUGFIX: model's "path" argument lands in node.parameters,
+                # not node.action.target (that's a separate field only set
+                # by whoever constructs the Action). Previously this always
+                # fell back to cwd, silently searching the wrong directory
+                # and returning zero matches with no error.
+                requested_path = node.parameters.get("path")
+                search_root = requested_path or target or "."
+                if requested_path and not os.path.isdir(self._resolve_target(requested_path)):
+                    return False, {"error": f"glob_find path not found or not a directory: '{requested_path}'"}
+                search_root = self._resolve_target(search_root) if requested_path else search_root
                 full_pattern = os.path.join(search_root, "**", pattern)
                 matches = globmod.glob(full_pattern, recursive=True)
                 matches = [m for m in matches if "node_modules" not in m and "__pycache__" not in m]
+                if not matches:
+                    return True, {"status_code": "OK", "pattern": pattern, "match_count": 0,
+                                   "matches": [], "warning": f"no matches found under '{search_root}'"}
                 return True, {"status_code": "OK", "pattern": pattern, "match_count": len(matches),
                                "matches": matches[:100]}
             except Exception as e:
