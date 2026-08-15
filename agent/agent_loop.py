@@ -492,6 +492,38 @@ def run_agent_task(task_description, max_steps=10, signed_log=None, cwd_hint=Non
                         + "\n".join(failed_calls)
                     )
 
+                # Catch claimed-but-never-executed writes: the model can
+                # narrate "I wrote X.md" / "created X.py" / "saved to X"
+                # without ever issuing a write_file tool_call. Since no
+                # transcript entry exists for a call that was never made,
+                # the failed_calls check above can't catch this - there's
+                # nothing to check against. Cross-reference file paths
+                # named in the narrative against real write_file calls.
+                import re as _re
+                claimed_files = set(_re.findall(
+                    r"(?:wrote|created|saved|writing|written)\s+(?:to\s+)?`?([A-Za-z0-9_\-./]+\.[A-Za-z0-9]{1,8})`?",
+                    narrative_text, _re.IGNORECASE
+                ))
+                actually_written = set()
+                for entry in transcript:
+                    if entry.get("role") != "tool":
+                        continue
+                    result = entry.get("result", {})
+                    output = result.get("output", {}) if isinstance(result, dict) else {}
+                    if isinstance(output, dict) and output.get("status_code") == "OK" and "path" in output:
+                        actually_written.add(os.path.basename(output["path"]))
+                unverified_writes = [
+                    f for f in claimed_files
+                    if os.path.basename(f) not in actually_written
+                ]
+                if unverified_writes:
+                    final_content += (
+                        "\n\n[UNVERIFIED WRITE CLAIMS - no matching write_file "
+                        "tool_call found in this session's transcript for these "
+                        "files; do not treat prior narration as confirming they "
+                        "exist]\n" + "\n".join(f"- {f}" for f in unverified_writes)
+                    )
+
                 # Ground any counting/verification commands the same way -
                 # ensures claimed numbers in the final response actually
                 # came from a real tool call, not the model's guess.
