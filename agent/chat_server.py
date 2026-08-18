@@ -11,10 +11,12 @@ possible instead of every task being bound to one blocking HTTP request.
 """
 import os
 import sys
+import json
 import logging
 import threading
 import uuid
 import time
+import queue as queue_mod
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
@@ -51,6 +53,17 @@ _jobs_lock = threading.Lock()
 def _run_job(job_id, message, max_steps):
     with _jobs_lock:
         _jobs[job_id]["status"] = "running"
+
+    step_queue = _jobs[job_id]["step_queue"]
+
+    def on_step(step_dict):
+        # Feeds the live SSE stream. Also mirrored into the job dict's
+        # own transcript list so polling /api/job/<id> still works for
+        # clients that aren't using SSE.
+        with _jobs_lock:
+            _jobs[job_id].setdefault("transcript", []).append(step_dict)
+        step_queue.put(step_dict)
+
     try:
         transcript = run_agent_task(
             message,
@@ -58,6 +71,7 @@ def _run_job(job_id, message, max_steps):
             signed_log=LOG_PATH,
             cwd_hint=CWD_HINT,
             require_plan=True,
+            on_step=on_step,
         )
         final_entry = next((e for e in reversed(transcript) if e.get("final")), None)
         final_text = final_entry["content"] if final_entry else "(no final response — see transcript)"
@@ -76,6 +90,10 @@ def _run_job(job_id, message, max_steps):
                 "error": str(e),
                 "finished_at": time.time(),
             })
+    finally:
+        # Sentinel tells the SSE generator the job is over, whatever
+        # the outcome, so it can close the stream instead of hanging.
+        step_queue.put(None)
 
 
 @app.route("/api/health", methods=["GET"])
@@ -134,6 +152,7 @@ def job_start():
             "message": message,
             "max_steps": max_steps,
             "started_at": time.time(),
+            "step_queue": queue_mod.Queue(),
         }
 
     thread = threading.Thread(target=_run_job, args=(job_id, message, max_steps), daemon=True)
@@ -148,7 +167,56 @@ def job_status(job_id):
         job = _jobs.get(job_id)
     if job is None:
         return jsonify({"error": f"No job found with id {job_id}"}), 404
-    return jsonify({"job_id": job_id, **job})
+    safe_job = {k: v for k, v in job.items() if k != "step_queue"}
+    return jsonify({"job_id": job_id, **safe_job})
+
+
+@app.route("/api/job/stream/<job_id>", methods=["GET"])
+def job_stream(job_id):
+    """
+    Server-Sent Events stream of live transcript steps for a running
+    job. One-directional, no new dependencies (SSE is plain HTTP with
+    a specific content-type + chunked text/event-stream format), and
+    works cleanly through both Render and Cloudflare tunnels.
+
+    Each event's data payload is one transcript step as JSON. A final
+    event with data: {"done": true} signals stream end - the frontend
+    should close its EventSource on seeing this rather than relying on
+    the connection dropping.
+    """
+    with _jobs_lock:
+        job = _jobs.get(job_id)
+    if job is None:
+        return jsonify({"error": f"No job found with id {job_id}"}), 404
+
+    step_queue = job["step_queue"]
+
+    def generate():
+        # Replay any steps that already happened before this stream
+        # connected (e.g. client reconnecting mid-job), then continue
+        # live from the queue.
+        with _jobs_lock:
+            already = list(job.get("transcript", []))
+        for step in already:
+            yield f"data: {json.dumps(step)}\n\n"
+
+        while True:
+            try:
+                step = step_queue.get(timeout=30)
+            except queue_mod.Empty:
+                # Heartbeat comment, keeps proxies/tunnels from closing
+                # an idle connection.
+                yield ": heartbeat\n\n"
+                continue
+            if step is None:
+                yield f"data: {json.dumps({'done': True})}\n\n"
+                break
+            yield f"data: {json.dumps(step)}\n\n"
+
+    return app.response_class(generate(), mimetype="text/event-stream", headers={
+        "Cache-Control": "no-cache",
+        "X-Accel-Buffering": "no",  # disable nginx buffering if present
+    })
 
 
 @app.route("/api/job", methods=["GET"])

@@ -320,10 +320,17 @@ def save_session(messages):
         json.dump({"messages": messages, "saved_at": time.time()}, f, indent=2, default=str)
 
 
-def run_agent_task(task_description, max_steps=10, signed_log=None, cwd_hint=None, resume=False, require_plan=False):
+def run_agent_task(task_description, max_steps=10, signed_log=None, cwd_hint=None, resume=False, require_plan=False, on_step=None):
     """
     Runs the real tool-use loop synchronously (wraps async internals).
     Returns the full transcript: list of {step, role, content/tool_calls/tool_result}.
+
+    on_step: optional callable(step_dict). Called synchronously right
+    after each transcript entry is appended, so a caller (e.g. the SSE
+    endpoint in chat_server.py) can stream progress live instead of
+    waiting for the full transcript at the end. Exceptions inside
+    on_step are swallowed - a broken UI callback should never take
+    down the agent loop itself.
     """
     validator = ActionValidator()
     analyzer = SideEffectAnalyzer()
@@ -591,12 +598,22 @@ def run_agent_task(task_description, max_steps=10, signed_log=None, cwd_hint=Non
                         )
 
                 transcript.append({"step": step, "role": "assistant", "content": final_content, "final": True})
+            if on_step:
+                try:
+                    on_step(transcript[-1])
+                except Exception:
+                    pass
                 if signed_log:
                     sign_event(signed_log, event_type="agent_final", data={"step": step, "content": final_content[:1000]})
                 break
 
             messages.append(message)
             transcript.append({"step": step, "role": "assistant", "tool_calls": tool_calls})
+            if on_step:
+                try:
+                    on_step(transcript[-1])
+                except Exception:
+                    pass
 
             for tc in tool_calls:
                 result = loop.run_until_complete(_execute_tool_call(executor, tc))
@@ -610,6 +627,11 @@ def run_agent_task(task_description, max_steps=10, signed_log=None, cwd_hint=Non
                     })
 
                 transcript.append({"step": step, "role": "tool", "tool_call_id": tc["id"], "result": result})
+                if on_step:
+                    try:
+                        on_step(transcript[-1])
+                    except Exception:
+                        pass
 
                 # Cap tool-result size before it enters history. This is
                 # byte-based, not tied to today's file/repo counts, so it
@@ -635,6 +657,11 @@ def run_agent_task(task_description, max_steps=10, signed_log=None, cwd_hint=Non
                 })
         else:
             transcript.append({"step": max_steps, "role": "system", "content": f"Stopped: hit max_steps ({max_steps}) without model finishing."})
+            if on_step:
+                try:
+                    on_step(transcript[-1])
+                except Exception:
+                    pass
 
     finally:
         loop.close()
