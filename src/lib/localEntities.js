@@ -92,7 +92,7 @@ export const functions = {
 
 // --- Direct Groq API call, replacing the old base44 backend function ---
 const GROQ_API_KEY = import.meta.env.VITE_GROQ_API_KEY;
-const GROQ_MODEL = "llama-3.3-70b-versatile";
+const GROQ_MODEL = "openai/gpt-oss-120b";
 
 const callGroqComplete = async ({ prompt, response_json_schema, add_context_from_internet }) => {
   if (!GROQ_API_KEY) {
