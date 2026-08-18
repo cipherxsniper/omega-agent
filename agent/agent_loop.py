@@ -320,7 +320,7 @@ def save_session(messages):
         json.dump({"messages": messages, "saved_at": time.time()}, f, indent=2, default=str)
 
 
-def run_agent_task(task_description, max_steps=10, signed_log=None, cwd_hint=None, resume=False, require_plan=False, on_step=None):
+def run_agent_task(task_description, max_steps=20, signed_log=None, cwd_hint=None, resume=False, require_plan=False, on_step=None):
     """
     Runs the real tool-use loop synchronously (wraps async internals).
     Returns the full transcript: list of {step, role, content/tool_calls/tool_result}.
@@ -437,7 +437,7 @@ def run_agent_task(task_description, max_steps=10, signed_log=None, cwd_hint=Non
                 trimmed,
                 tools=TOOLS,
                 reasoning_effort=effort,
-                max_tokens=1024,
+                max_tokens=4096,
                 return_message=True,
             )
 
@@ -656,7 +656,7 @@ def run_agent_task(task_description, max_steps=10, signed_log=None, cwd_hint=Non
                     "content": result_json,
                 })
         else:
-            transcript.append({"step": max_steps, "role": "system", "content": f"Stopped: hit max_steps ({max_steps}) without model finishing."})
+            transcript.append({"step": max_steps, "role": "system", "content": f"Stopped: hit max_steps ({max_steps}) without model finishing.", "final": True})
             if on_step:
                 try:
                     on_step(transcript[-1])
