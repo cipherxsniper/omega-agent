@@ -1,10 +1,108 @@
 import React, { useState } from "react";
 import { motion } from "framer-motion";
-import { ChevronDown, ChevronUp, ExternalLink, Brain, Clock } from "lucide-react";
+import ReactMarkdown from "react-markdown";
+import { ChevronDown, ChevronUp, ExternalLink, Brain, Clock, Copy, Check } from "lucide-react";
+
+function CodeBlock({ inline, className, children }) {
+  const [copied, setCopied] = useState(false);
+  const codeString = String(children).replace(/\n$/, "");
+
+  if (inline) {
+    return (
+      <code className="bg-white/10 text-teal-300 px-1.5 py-0.5 rounded text-[13px] font-mono">
+        {codeString}
+      </code>
+    );
+  }
+
+  const language = (className || "").replace("language-", "");
+
+  const handleCopy = async () => {
+    try {
+      await navigator.clipboard.writeText(codeString);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    } catch (e) {
+      // clipboard unavailable — fail silently, button just won't confirm
+    }
+  };
+
+  return (
+    <div className="relative group my-2 rounded-lg overflow-hidden border border-white/10 bg-black/40">
+      <div className="flex items-center justify-between px-3 py-1.5 bg-white/[0.04] border-b border-white/10">
+        <span className="text-[10px] uppercase tracking-wider text-white/30 font-mono">
+          {language || "code"}
+        </span>
+        <button
+          onClick={handleCopy}
+          className="flex items-center gap-1 text-[11px] text-white/40 hover:text-teal-400 transition-colors"
+        >
+          {copied ? (
+            <>
+              <Check className="w-3 h-3" /> Copied
+            </>
+          ) : (
+            <>
+              <Copy className="w-3 h-3" /> Copy
+            </>
+          )}
+        </button>
+      </div>
+      <pre className="overflow-x-auto px-3 py-2.5 text-[13px] leading-relaxed font-mono text-white/90">
+        <code>{codeString}</code>
+      </pre>
+    </div>
+  );
+}
+
+function MessageMarkdown({ content }) {
+  return (
+    <ReactMarkdown
+      components={{
+        code({ inline, className, children, ...props }) {
+          return (
+            <CodeBlock inline={inline} className={className} {...props}>
+              {children}
+            </CodeBlock>
+          );
+        },
+        p({ children }) {
+          return <p className="mb-2 last:mb-0">{children}</p>;
+        },
+        ul({ children }) {
+          return <ul className="list-disc pl-5 mb-2 space-y-0.5">{children}</ul>;
+        },
+        ol({ children }) {
+          return <ol className="list-decimal pl-5 mb-2 space-y-0.5">{children}</ol>;
+        },
+        a({ href, children }) {
+          return (
+            <a href={href} target="_blank" rel="noopener noreferrer" className="text-teal-400 underline underline-offset-2">
+              {children}
+            </a>
+          );
+        },
+      }}
+    >
+      {content}
+    </ReactMarkdown>
+  );
+}
 
 export default function MessageBubble({ message }) {
   const [showReasoning, setShowReasoning] = useState(false);
   const [showSources, setShowSources] = useState(false);
+  const [msgCopied, setMsgCopied] = useState(false);
+
+  const handleCopyMessage = async () => {
+    try {
+      await navigator.clipboard.writeText(message.content || "");
+      setMsgCopied(true);
+      setTimeout(() => setMsgCopied(false), 1500);
+    } catch (e) {
+      // clipboard unavailable — button just won't confirm
+    }
+  };
   const isUser = message.role === "user";
   const isSystem = message.role === "system";
 
@@ -44,10 +142,30 @@ export default function MessageBubble({ message }) {
               : "bg-white/5 text-white border border-white/10 rounded-bl-sm"
           }`}
         >
-          <div className="whitespace-pre-wrap text-sm leading-relaxed">
-            {message.content}
+          <div className="text-sm leading-relaxed">
+            {isUser ? (
+              <div className="whitespace-pre-wrap">{message.content}</div>
+            ) : (
+              <MessageMarkdown content={message.content} />
+            )}
           </div>
         </div>
+
+        {/* Copy message */}
+        <button
+          onClick={handleCopyMessage}
+          className={`mt-1 flex items-center gap-1 text-[11px] text-white/25 hover:text-teal-400 transition-colors ${isUser ? "ml-auto" : ""}`}
+        >
+          {msgCopied ? (
+            <>
+              <Check className="w-3 h-3" /> Copied
+            </>
+          ) : (
+            <>
+              <Copy className="w-3 h-3" /> Copy
+            </>
+          )}
+        </button>
 
         {/* Reasoning Chain */}
         {message.reasoning_chain && !isUser && (
