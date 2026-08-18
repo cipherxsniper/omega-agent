@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from "react";
 import { base44 } from "@/api/base44Client";
+import { stepsFromTranscript } from "@/lib/transcriptAdapter";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   Globe, Terminal, FileCode, ListChecks, Loader2, CheckCircle,
@@ -23,24 +24,30 @@ const TOOL_ICONS = {
   none: Code,
 };
 
-export default function WorkspacePanel({ conversationId, isThinking, onClose }) {
+export default function WorkspacePanel({ conversationId, isThinking, onClose, transcript }) {
   const [activeTab, setActiveTab] = useState("actions");
   const [steps, setSteps] = useState([]);
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
+    if (transcript) {
+      setSteps(stepsFromTranscript(transcript));
+      setLoading(false);
+      return;
+    }
     if (conversationId) loadSteps(conversationId);
-  }, [conversationId, isThinking]);
+  }, [conversationId, isThinking, transcript]);
 
-  // Realtime subscribe to steps
+  // Realtime subscribe to steps (legacy path — inactive while transcript is supplied directly)
   useEffect(() => {
+    if (transcript) return;
     if (!conversationId) return;
     const unsub = base44.entities.AgentStep.subscribe((event) => {
       if (event.data?.conversation_id !== conversationId) return;
       loadSteps(conversationId);
     });
     return unsub;
-  }, [conversationId]);
+  }, [conversationId, transcript]);
 
   const loadSteps = async (convId) => {
     setLoading(true);
@@ -213,22 +220,25 @@ export default function WorkspacePanel({ conversationId, isThinking, onClose }) 
           {activeTab === "terminal" && (
             <motion.div key="terminal" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="h-full">
               <div className="h-full bg-black font-mono text-xs p-3 overflow-y-auto">
-                <div className="text-white/20 mb-2">Omega Terminal — omega@workspace:~$</div>
-                {steps.filter((s) => s.tool === "terminal").length === 0 ? (
-                  <p className="text-white/20">$ waiting for command...</p>
+                <div className="text-white/20 mb-2">Omega Terminal — omegaagent$</div>
+                {steps.length === 0 ? (
+                  <p className="text-white/20">omegaagent$ waiting for command...</p>
                 ) : (
-                  steps.filter((s) => s.tool === "terminal").map((s) => (
+                  steps.map((s) => (
                     <div key={s.id} className="mb-2">
-                      <div className="text-teal-400">$ {s.title}</div>
+                      <div className="text-teal-400">
+                        omegaagent$ <span className="text-white/70">{s.title}</span>
+                        {s.description && <span className="text-white/30"> — {s.description}</span>}
+                      </div>
                       {s.tool_output && (
                         <pre className="text-white/50 whitespace-pre-wrap mt-0.5">{s.tool_output}</pre>
                       )}
                     </div>
                   ))
                 )}
-                {isThinking && runningStep?.tool === "terminal" && (
+                {isThinking && runningStep && (
                   <div className="text-teal-400 flex items-center gap-1">
-                    $ <span className="animate-pulse">█</span>
+                    omegaagent$ <span className="animate-pulse">█</span>
                   </div>
                 )}
               </div>

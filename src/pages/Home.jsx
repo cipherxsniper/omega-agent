@@ -25,7 +25,9 @@ export default function Home() {
   const [isThinking, setIsThinking] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [activePanel, setActivePanel] = useState(null); // jobs, memory, github, system
+  const [showMobileWorkspace, setShowMobileWorkspace] = useState(false);
   const messagesEndRef = useRef(null);
+  const [liveTranscript, setLiveTranscript] = useState([]);
 
   useEffect(() => {
     if (!showIntro) loadConversations();
@@ -154,6 +156,7 @@ Return 3-7 steps. Be specific to the actual task.`;
     });
     setMessages((prev) => [...prev, userMsg]);
     setIsThinking(true);
+    setLiveTranscript([]);
 
     const startTime = Date.now();
 
@@ -273,6 +276,7 @@ Return 3-7 steps. Be specific to the actual task.`;
             },
           },
         },
+        onStep: (step) => setLiveTranscript((prev) => [...prev, step]),
       });
       response = response.data || response;
     } else {
@@ -285,6 +289,7 @@ Return 3-7 steps. Be specific to the actual task.`;
             response: { type: "string" },
           },
         },
+        onStep: (step) => setLiveTranscript((prev) => [...prev, step]),
       });
       response = response.data || response;
     }
@@ -292,7 +297,7 @@ Return 3-7 steps. Be specific to the actual task.`;
     const responseTime = Date.now() - startTime;
 
     // Parse response
-    let content = typeof response === "string" ? response : response.response || JSON.stringify(response);
+    let content = typeof response === "string" ? response : response.result || response.response || JSON.stringify(response);
     const reasoning = typeof response === "object" ? response.reasoning : null;
     const sources = typeof response === "object" && response.sources ? response.sources : [];
 
@@ -343,6 +348,7 @@ Return 3-7 steps. Be specific to the actual task.`;
       content,
       reasoning_chain: reasoning,
       sources,
+      transcript: response.transcript || null,
       job_id: job?.id,
       metadata: {
         model: "omega-1.0",
@@ -477,10 +483,52 @@ Return 3-7 steps. Be specific to the actual task.`;
           </div>
         </div>
 
-        {/* Workspace panel — always visible (Manus style) */}
+        {/* Workspace panel — desktop: always visible side panel */}
         <div className="w-[420px] shrink-0 hidden lg:block">
-          <WorkspacePanel conversationId={activeConversationId} isThinking={isThinking} />
+          <WorkspacePanel
+            conversationId={activeConversationId}
+            isThinking={isThinking}
+            transcript={
+              isThinking && liveTranscript.length > 0
+                ? liveTranscript
+                : [...messages].reverse().find((m) => m.role === "assistant" && m.transcript)?.transcript
+            }
+          />
         </div>
+
+        {/* Workspace panel — mobile: floating toggle + full-screen overlay */}
+        <button
+          onClick={() => setShowMobileWorkspace(true)}
+          className="lg:hidden fixed bottom-24 right-4 z-40 w-12 h-12 rounded-full bg-teal-500 text-black flex items-center justify-center shadow-lg shadow-teal-500/30"
+          title="Omega Sandbox"
+        >
+          <span className="font-black text-lg">Ω</span>
+        </button>
+
+        {showMobileWorkspace && (
+          <div className="lg:hidden fixed inset-0 z-50 bg-black flex flex-col">
+            <div className="flex items-center justify-between px-4 py-3 border-b border-white/10">
+              <span className="text-white text-sm font-mono">Omega Sandbox</span>
+              <button
+                onClick={() => setShowMobileWorkspace(false)}
+                className="text-white/50 hover:text-white p-1"
+              >
+                ✕
+              </button>
+            </div>
+            <div className="flex-1 overflow-hidden">
+              <WorkspacePanel
+                conversationId={activeConversationId}
+                isThinking={isThinking}
+                transcript={
+                  isThinking && liveTranscript.length > 0
+                    ? liveTranscript
+                    : [...messages].reverse().find((m) => m.role === "assistant" && m.transcript)?.transcript
+                }
+              />
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Modal overlays for nav panels */}
