@@ -310,6 +310,12 @@ def load_session():
 
 
 def save_session(messages):
+    # BUGFIX: on a fresh deploy (e.g. Render, where ~ resolves to
+    # /opt/render), ~/.omega/logs/ doesn't exist yet, so this open()
+    # raised FileNotFoundError and killed every request. Ensure the
+    # directory exists before every write - cheap, and safe even if
+    # it already exists (exist_ok=True).
+    os.makedirs(os.path.dirname(SESSION_PATH), exist_ok=True)
     with open(SESSION_PATH, "w") as f:
         json.dump({"messages": messages, "saved_at": time.time()}, f, indent=2, default=str)
 

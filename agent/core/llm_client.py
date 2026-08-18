@@ -25,7 +25,7 @@ class LLMClient(ABC):
 class GroqClient(LLMClient):
     """Real Groq-backed client. Requires GROQ_API_KEY in environment."""
 
-    def __init__(self, model: str = "llama-3.3-70b-versatile", api_key: Optional[str] = None):
+    def __init__(self, model: str = "openai/gpt-oss-120b", api_key: Optional[str] = None):
         self.model = model
         self.api_key = api_key or os.environ.get("GROQ_API_KEY")
         if not self.api_key:

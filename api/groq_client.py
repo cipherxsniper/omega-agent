@@ -23,11 +23,11 @@ FAST_MODEL = "openai/gpt-oss-20b"  # llama-3.1-8b-instant deprecated Aug 16 2026
 # on Groq, so if one tier is rate-limited for the day, we fall through to
 # the next rather than blocking on a single model's TPD cap.
 MODEL_TIER_STACK = [
+    # Deprecated Groq models replaced per console.groq.com/docs/deprecations
+    # (llama-3.3-70b-versatile and llama-3.1-8b-instant both retired):
     "qwen/qwen3.6-27b",
-    "llama-3.3-70b-versatile",
     "openai/gpt-oss-120b",
     "openai/gpt-oss-20b",
-    "llama-3.1-8b-instant",
 ]
 
 # Per-model TPM ceilings on our current Groq tier (on_demand). Used to
