@@ -89,7 +89,7 @@ function MessageMarkdown({ content }) {
   );
 }
 
-export default function MessageBubble({ message }) {
+export default function MessageBubble({ message, onOpenWorkspace }) {
   const [showReasoning, setShowReasoning] = useState(false);
   const [showSources, setShowSources] = useState(false);
   const [msgCopied, setMsgCopied] = useState(false);
@@ -118,12 +118,8 @@ export default function MessageBubble({ message }) {
       <div className={`max-w-[80%] ${isUser ? "order-1" : "order-1"}`}>
         {/* Avatar + Name */}
         <div className={`flex items-center gap-2 mb-1 ${isUser ? "justify-end" : "justify-start"}`}>
-          {!isUser && (
-            <div className="w-6 h-6 rounded-full bg-teal-500 flex items-center justify-center">
-              <span className="text-black text-xs font-black">Ω</span>
-            </div>
-          )}
-          <span className="text-xs text-white/40 font-mono">
+          {!isUser && <span className="h-1.5 w-1.5 rounded-full bg-teal-300" />}
+          <span className="text-xs font-mono text-white/40">
             {isUser ? "You" : "Omega"}
           </span>
           {message.metadata?.response_time_ms && (
@@ -151,10 +147,11 @@ export default function MessageBubble({ message }) {
           </div>
         </div>
 
-        {/* Copy message */}
+        {/* Bubble actions */}
+        <div className={`mt-1 flex items-center gap-3 ${isUser ? "justify-end" : ""}`}>
         <button
           onClick={handleCopyMessage}
-          className={`mt-1 flex items-center gap-1 text-[11px] text-white/25 hover:text-teal-400 transition-colors ${isUser ? "ml-auto" : ""}`}
+          className="flex items-center gap-1 text-[11px] text-white/25 hover:text-teal-400 transition-colors"
         >
           {msgCopied ? (
             <>
@@ -166,6 +163,17 @@ export default function MessageBubble({ message }) {
             </>
           )}
         </button>
+        {!isUser && onOpenWorkspace && (
+          <button
+            onClick={onOpenWorkspace}
+            className="flex items-center gap-1 text-[11px] text-teal-400/60 hover:text-teal-300 transition-colors"
+            title="Open Omega activity"
+            aria-label="Open Omega activity"
+          >
+            <span className="font-semibold">Ω</span> Activity
+          </button>
+        )}
+        </div>
 
         {/* Reasoning Chain */}
         {message.reasoning_chain && !isUser && (

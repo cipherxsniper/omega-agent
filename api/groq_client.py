@@ -23,11 +23,11 @@ FAST_MODEL = "openai/gpt-oss-20b"  # llama-3.1-8b-instant deprecated Aug 16 2026
 # on Groq, so if one tier is rate-limited for the day, we fall through to
 # the next rather than blocking on a single model's TPD cap.
 MODEL_TIER_STACK = [
-    # Deprecated Groq models replaced per console.groq.com/docs/deprecations
-    # (llama-3.3-70b-versatile and llama-3.1-8b-instant both retired):
     "qwen/qwen3.6-27b",
+    "llama-3.3-70b-versatile",
     "openai/gpt-oss-120b",
     "openai/gpt-oss-20b",
+    "llama-3.1-8b-instant",
 ]
 
 # Per-model TPM ceilings on our current Groq tier (on_demand). Used to
@@ -105,9 +105,20 @@ def chat_completion(messages, model=None, temperature=0.3, max_tokens=2048,
     """
     import re
 
-    tier = MODEL_TIER_STACK if model is None else [model] + [
-        m for m in MODEL_TIER_STACK if m != model
-    ]
+    has_images = any(
+        isinstance(message.get("content"), list)
+        and any(part.get("type") == "image_url" for part in message["content"] if isinstance(part, dict))
+        for message in messages
+        if isinstance(message, dict)
+    )
+    if has_images and model is None:
+        # Only qwen/qwen3.6-27b is vision-capable in this configured stack.
+        # Do not silently retry with text-only models and imply that an image was analyzed.
+        tier = ["qwen/qwen3.6-27b"]
+    else:
+        tier = MODEL_TIER_STACK if model is None else [model] + [
+            m for m in MODEL_TIER_STACK if m != model
+        ]
 
     last_error = None
     for idx in range(_tier_start_index, len(tier)):

@@ -26,7 +26,7 @@ import py_compile
 from datetime import datetime
 
 sys.path.append(os.path.expanduser('~/.omega/lib'))
-from agentproof import sign_event
+from omega_proof import sign_event
 
 REPO_ROOT = os.path.dirname(os.path.abspath(__file__)) + "/.."
 ACTION_ENGINE_PATH = os.path.join(REPO_ROOT, "agent/core/action_engine.py")

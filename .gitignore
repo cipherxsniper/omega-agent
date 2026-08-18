@@ -6,13 +6,11 @@ __pycache__/
 __pycache__/
 *.pyc
 .pytest_cache/
-
-# --- omega secret hygiene (grok 1a11ede8) ---
-.env
 .env.*
-!.env.example
 *.pem
 *.key
-**/secrets.json
-**/stripe.env
-.env.omega_canonical
+*.pub
+credentials*
+*.log
+.omega-sync/
+quick-tunnel-url.txt

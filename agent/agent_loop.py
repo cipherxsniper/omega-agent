@@ -20,13 +20,11 @@ import re
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 sys.path.append(os.path.expanduser('~/.omega/lib'))
 
-try:
-    from api.metered_chat_completion import chat_completion  # OpenRouter metered first
-except Exception:
-    from api.groq_client import chat_completion
+from api.groq_client import chat_completion
 from agent.core.action_engine import Action, ActionNode, ActionExecutor, ActionValidator, SideEffectAnalyzer
 from agent.self_extend import propose_tool
-from agentproof import sign_event
+from lib.omega_proof import sign_event
+from agent.decision_provenance import build_decision_provenance
 
 TOOLS = [
     {
@@ -253,7 +251,6 @@ TOOLS = [
 ]
 
 SYSTEM_PROMPT = (
-    "\n\nCODE BLOCK MANDATE:\n- Any shell command, script, or Termux instruction MUST be wrapped in a single fenced code block (```sh ... ```), never as plain unfenced text.\n- If the script writes a file, format it as: cat > file << 'EOF', the file contents, EOF, then the run command — all inside ONE fenced code block.\n- Never output a cat/EOF heredoc as raw text outside a code fence.\n"
     "You are Omega, an agentic coding assistant with real tool access. "
     "You can read files, write files, run shell commands, and check code compiles. "
     "Use tools to actually accomplish the task — never claim something is done "
@@ -269,14 +266,6 @@ async def _execute_tool_call(executor, tool_call):
         args = json.loads(tool_call["function"]["arguments"])
     except json.JSONDecodeError as e:
         return {"error": f"Model sent malformed tool arguments: {e}"}
-
-    # json.loads("null") succeeds and returns None without raising -
-    # args.get(...) below then crashes with AttributeError, not caught
-    # by the except above. Guard explicitly: null/non-dict arguments are
-    # malformed input, same as unparseable JSON, and should fail the same
-    # clean way instead of taking down the whole request.
-    if not isinstance(args, dict):
-        return {"error": f"Model sent non-dict tool arguments: {args!r}"}
 
     if name == "propose_new_tool":
         # Not a normal dispatch action — runs the full test-gated self-extension
@@ -311,27 +300,14 @@ def load_session():
 
 
 def save_session(messages):
-    # BUGFIX: on a fresh deploy (e.g. Render, where ~ resolves to
-    # /opt/render), ~/.omega/logs/ doesn't exist yet, so this open()
-    # raised FileNotFoundError and killed every request. Ensure the
-    # directory exists before every write - cheap, and safe even if
-    # it already exists (exist_ok=True).
-    os.makedirs(os.path.dirname(SESSION_PATH), exist_ok=True)
     with open(SESSION_PATH, "w") as f:
         json.dump({"messages": messages, "saved_at": time.time()}, f, indent=2, default=str)
 
 
-def run_agent_task(task_description, max_steps=20, signed_log=None, cwd_hint=None, resume=False, require_plan=False, on_step=None):
+def run_agent_task(task_description, max_steps=10, signed_log=None, cwd_hint=None, resume=False, on_step=None, require_plan=False, image_inputs=None):
     """
     Runs the real tool-use loop synchronously (wraps async internals).
     Returns the full transcript: list of {step, role, content/tool_calls/tool_result}.
-
-    on_step: optional callable(step_dict). Called synchronously right
-    after each transcript entry is appended, so a caller (e.g. the SSE
-    endpoint in chat_server.py) can stream progress live instead of
-    waiting for the full transcript at the end. Exceptions inside
-    on_step are swallowed - a broken UI callback should never take
-    down the agent loop itself.
     """
     validator = ActionValidator()
     analyzer = SideEffectAnalyzer()
@@ -340,131 +316,57 @@ def run_agent_task(task_description, max_steps=20, signed_log=None, cwd_hint=Non
     system = SYSTEM_PROMPT
     if cwd_hint:
         system += f" The current working directory is {cwd_hint}."
-    if require_plan:
-        # Mandatory planning mode, for long/complex autonomous tasks (used
-        # by the background job endpoint). Claude-Code-style: plan before
-        # acting, keep the plan current, verify against it before declaring
-        # done - rather than improvising step by step with no durable plan.
-        system += (
-            " This is a long-running autonomous task. Before taking any "
-            "other action, call write_todos with a full breakdown of every "
-            "step needed to complete this task. As you complete each step, "
-            "call write_todos again to update status. Before your final "
-            "response, call read_todos and confirm every item is actually "
-            "done - do not declare the task complete if any item is not "
-            "reflected as done in the todo state."
-        )
 
     prior = load_session() if resume else None
+    image_inputs = image_inputs or []
+    if image_inputs:
+        content_parts = [{"type": "text", "text": task_description}]
+        content_parts.extend(
+            {"type": "image_url", "image_url": {"url": item["dataUrl"]}}
+            for item in image_inputs
+        )
+        user_content = content_parts
+    else:
+        user_content = task_description
+
     if prior and prior.get("messages"):
         messages = prior["messages"]
-        messages.append({"role": "user", "content": task_description})
+        messages.append({"role": "user", "content": user_content})
     else:
         messages = [
             {"role": "system", "content": system},
-            {"role": "user", "content": task_description},
+            {"role": "user", "content": user_content},
         ]
 
     transcript = []
+    provenance_parent_id = None
+    available_tool_names = [item["function"]["name"] for item in TOOLS]
     loop = asyncio.new_event_loop()
 
     try:
         for step in range(max_steps):
             MAX_RECENT_MESSAGES = 6
             trimmed = messages[:2] + messages[2:][-MAX_RECENT_MESSAGES:]
-
-            # Auto-inject current todo state every turn, independent of
-            # whether the model remembers to call read_todos. Root cause
-            # of the multi-item task looping bug: history trimming drops
-            # earlier progress out of context, and todos were pure on-disk
-            # storage with no auto-recall - the model would re-check items
-            # it already finished because it could no longer see that it
-            # had. This makes progress durable across trimming regardless
-            # of task length, instead of just raising the trim window and
-            # delaying the same problem at a bigger N.
-            try:
-                todo_path = os.path.expanduser("~/.omega/logs/agent_todos.json")
-                if os.path.exists(todo_path):
-                    with open(todo_path) as tf:
-                        todo_state = json.load(tf)
-                    todos = todo_state.get("todos", [])
-                    if todos:
-                        todo_reminder = (
-                            "[CURRENT TODO STATE - auto-injected, reflects your "
-                            "last write_todos call. Do not re-do items already "
-                            "reflected as complete here; check this before "
-                            "repeating any prior tool call.]\n"
-                            + "\n".join(f"- {t}" for t in todos)
-                        )
-                        trimmed = trimmed + [{"role": "system", "content": todo_reminder}]
-            except Exception:
-                pass  # todo injection is a convenience, never block the main loop on it
-
-            # Same problem, different shape: the model was re-running
-            # glob_find/grep_search/read_file for files it had already
-            # located and read earlier in the session, once those steps
-            # fell out of the trimmed window - burning steps on repeat
-            # searches (observed: ~35 of 59 steps in one run re-searching
-            # for the same already-found file). Scan the FULL transcript
-            # (not the trimmed slice) for successful file discoveries and
-            # remind the model what's already known, every turn.
-            try:
-                known_files = set()
-                for entry in transcript:
-                    if entry.get("role") != "tool":
-                        continue
-                    result = entry.get("result", {})
-                    output = result.get("output", {}) if isinstance(result, dict) else {}
-                    if not isinstance(output, dict):
-                        continue
-                    if result.get("success") is True and output.get("path"):
-                        known_files.add(output["path"])
-                    for m in output.get("matches", []):
-                        known_files.add(m)
-
-                if known_files:
-                    files_reminder = (
-                        "[FILES ALREADY LOCATED/READ THIS SESSION - do not "
-                        "re-run glob_find/grep_search/read_file for these, "
-                        "use what you already know instead]\n"
-                        + "\n".join(f"- {f}" for f in sorted(known_files))
-                    )
-                    trimmed = trimmed + [{"role": "system", "content": files_reminder}]
-            except Exception:
-                pass  # convenience only, never block the main loop on it
             effort = "default"
 
             message = chat_completion(
                 trimmed,
                 tools=TOOLS,
                 reasoning_effort=effort,
-                max_tokens=4096,
+                max_tokens=1024,
                 return_message=True,
             )
 
             tool_calls = message.get("tool_calls")
-            final_content = ""  # reset every iteration - fixes UnboundLocalError
 
             if not tool_calls:
                 final_content = message.get("content", "")
-
-                # Guard against silent empty-stop: the model can emit no
-                # tool_calls AND no content, which previously passed through
-                # as a valid "done" with a blank response - no explanation,
-                # no failure report, nothing. Force one more turn instead of
-                # accepting silence as completion, up to a small retry cap
-                # so a persistently-empty model doesn't spin forever.
-                if not final_content.strip() and step < max_steps - 1:
-                    messages.append({
-                        "role": "user",
-                        "content": (
-                            "Your last response was empty. If the task is complete, "
-                            "say so explicitly and summarize what was done. If it is "
-                            "not complete, continue with the next tool call."
-                        ),
-                    })
-                    continue
-
+                if not isinstance(final_content, str) or not final_content.strip():
+                    final_content = (
+                        "Omega completed the observable agent loop, but the model returned "
+                        "no final narrative. Review the live workspace transcript for the "
+                        "verified steps and retry the request once the provider responds normally."
+                    )
                 narrative_text = final_content  # pristine copy, before any system-appended blocks
 
                 # Ground-truth failure check. The model's own summary is not
@@ -485,17 +387,9 @@ def run_agent_task(task_description, max_steps=20, signed_log=None, cwd_hint=Non
                         or result.get("accepted") is False
                     )
                     if is_failure:
-                        # run_bash failures put the real message in
-                        # output["stderr"], not output["error"] - this was
-                        # falling through to a generic "unspecified failure"
-                        # even when a specific, useful error was available,
-                        # which starves the model of the detail it needs to
-                        # explain what actually happened instead of guessing.
                         err = (
                             output.get("error")
                             if isinstance(output, dict) and output.get("error")
-                            else output.get("stderr").strip()
-                            if isinstance(output, dict) and output.get("stderr", "").strip()
                             else result.get("reason", "unspecified failure")
                         )
                         failed_calls.append(f"- step {entry.get('step')}: {err}")
@@ -505,38 +399,6 @@ def run_agent_task(task_description, max_steps=20, signed_log=None, cwd_hint=Non
                         "\n\n[SYSTEM-VERIFIED FAILURES - do not treat prior "
                         "narration as authoritative on these points]\n"
                         + "\n".join(failed_calls)
-                    )
-
-                # Catch claimed-but-never-executed writes: the model can
-                # narrate "I wrote X.md" / "created X.py" / "saved to X"
-                # without ever issuing a write_file tool_call. Since no
-                # transcript entry exists for a call that was never made,
-                # the failed_calls check above can't catch this - there's
-                # nothing to check against. Cross-reference file paths
-                # named in the narrative against real write_file calls.
-                import re as _re
-                claimed_files = set(_re.findall(
-                    r"(?:wrote|created|saved|writing|written)\s+(?:to\s+)?`?([A-Za-z0-9_\-./]+\.[A-Za-z0-9]{1,8})`?",
-                    narrative_text, _re.IGNORECASE
-                ))
-                actually_written = set()
-                for entry in transcript:
-                    if entry.get("role") != "tool":
-                        continue
-                    result = entry.get("result", {})
-                    output = result.get("output", {}) if isinstance(result, dict) else {}
-                    if isinstance(output, dict) and output.get("status_code") == "OK" and "path" in output:
-                        actually_written.add(os.path.basename(output["path"]))
-                unverified_writes = [
-                    f for f in claimed_files
-                    if os.path.basename(f) not in actually_written
-                ]
-                if unverified_writes:
-                    final_content += (
-                        "\n\n[UNVERIFIED WRITE CLAIMS - no matching write_file "
-                        "tool_call found in this session's transcript for these "
-                        "files; do not treat prior narration as confirming they "
-                        "exist]\n" + "\n".join(f"- {f}" for f in unverified_writes)
                     )
 
                 # Ground any counting/verification commands the same way -
@@ -599,25 +461,42 @@ def run_agent_task(task_description, max_steps=20, signed_log=None, cwd_hint=Non
                             + final_content
                         )
 
-                transcript.append({"step": step, "role": "assistant", "content": final_content, "final": True})
-            if on_step:
-                try:
-                    on_step(transcript[-1])
-                except Exception:
-                    pass
+                final_entry = {"step": step, "role": "assistant", "content": final_content, "final": True}
+                transcript.append(final_entry)
+                if on_step:
+                    try:
+                        on_step(final_entry)
+                    except Exception:
+                        pass
                 if signed_log:
                     sign_event(signed_log, event_type="agent_final", data={"step": step, "content": final_content[:1000]})
-            break
+                break
 
             messages.append(message)
-            transcript.append({"step": step, "role": "assistant", "tool_calls": tool_calls})
+            decision_records = []
+            for tc in tool_calls:
+                tool_name = tc["function"]["name"]
+                tool_args = tc["function"].get("arguments", {})
+                decision = build_decision_provenance(
+                    action=tool_name,
+                    arguments=tool_args,
+                    step=step,
+                    available_alternatives=available_tool_names,
+                    parent_id=provenance_parent_id,
+                    observed_context=transcript[-6:],
+                )
+                decision_records.append(decision)
+                provenance_parent_id = decision["decision_id"]
+                if signed_log:
+                    sign_event(signed_log, event_type="decision_provenance", data=decision)
+            transcript.append({"step": step, "role": "assistant", "tool_calls": tool_calls, "decision_provenance": decision_records})
             if on_step:
                 try:
                     on_step(transcript[-1])
                 except Exception:
                     pass
 
-            for tc in tool_calls:
+            for tc_index, tc in enumerate(tool_calls):
                 result = loop.run_until_complete(_execute_tool_call(executor, tc))
 
                 if signed_log:
@@ -628,7 +507,14 @@ def run_agent_task(task_description, max_steps=20, signed_log=None, cwd_hint=Non
                         "result": result,
                     })
 
-                transcript.append({"step": step, "role": "tool", "tool_call_id": tc["id"], "result": result})
+                decision = decision_records[tc_index]
+                transcript.append({
+                    "step": step,
+                    "role": "tool",
+                    "tool_call_id": tc["id"],
+                    "result": result,
+                    "decision_provenance": decision,
+                })
                 if on_step:
                     try:
                         on_step(transcript[-1])
@@ -658,10 +544,17 @@ def run_agent_task(task_description, max_steps=20, signed_log=None, cwd_hint=Non
                     "content": result_json,
                 })
         else:
-            transcript.append({"step": max_steps, "role": "system", "content": f"Stopped: hit max_steps ({max_steps}) without model finishing.", "final": True})
+            final_entry = {
+                "step": max_steps,
+                "role": "assistant",
+                "content": f"Omega reached the execution limit of {max_steps} steps before the model produced a final response. The observable transcript above is complete; continue from the last verified step to resume.",
+                "final": True,
+                "completion_status": "max_steps",
+            }
+            transcript.append(final_entry)
             if on_step:
                 try:
-                    on_step(transcript[-1])
+                    on_step(final_entry)
                 except Exception:
                     pass
 

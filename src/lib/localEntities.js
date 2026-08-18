@@ -84,14 +84,14 @@ export const entities = new Proxy({}, {
 
 // --- Real backend call, replacing the old direct-from-browser Groq call ---
 // No API key here — the key lives only on the server now (chat_server.py).
-const AGENT_BACKEND_URL = import.meta.env.VITE_AGENT_BACKEND_URL || "http://localhost:8420";
+const AGENT_BACKEND_URL = import.meta.env.VITE_AGENT_BACKEND_URL || "https://omega-agent-backend-v2.onrender.com";
 
-const callAgentBackend = async ({ prompt }) => {
+const callAgentBackend = async ({ prompt, images = [] }) => {
   try {
     const res = await fetch(`${AGENT_BACKEND_URL}/api/chat`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ message: prompt }),
+      body: JSON.stringify({ message: prompt, images }),
     });
 
     if (!res.ok) {
@@ -109,13 +109,13 @@ const callAgentBackend = async ({ prompt }) => {
 // Live-streaming path — uses the job/start + job/stream SSE pipeline so the
 // caller gets each transcript step as it happens (for driving WorkspacePanel
 // in real time) instead of waiting for the whole task to finish.
-const streamAgentBackend = ({ prompt, onStep }) => {
+const streamAgentBackend = ({ prompt, images = [], onStep }) => {
   return new Promise(async (resolve) => {
     try {
       const startRes = await fetch(`${AGENT_BACKEND_URL}/api/job/start`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ message: prompt }),
+        body: JSON.stringify({ message: prompt, images }),
       });
       if (!startRes.ok) {
         const err = await startRes.text();
@@ -135,9 +135,10 @@ const streamAgentBackend = ({ prompt, onStep }) => {
         const step = JSON.parse(event.data);
         if (step.done) {
           es.close();
-          const finalEntry = [...transcript].reverse().find((e) => e.final);
-          const finalText = finalEntry ? finalEntry.content : "(no final response — see transcript)";
-          resolve({ data: { result: finalText, transcript } });
+          const finalEntry = [...transcript].reverse().find((e) => e.final && typeof e.content === "string");
+          const finalText = step.response || finalEntry?.content ||
+            (step.error ? `Agent job failed: ${step.error}` : "Omega completed without a final response. Review the live transcript for details.");
+          resolve({ data: { result: finalText, transcript, error: step.error || null } });
           return;
         }
         transcript.push(step);
