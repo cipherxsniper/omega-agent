@@ -135,7 +135,29 @@ Return 3-7 steps. Be specific to the actual task.`;
     await base44.entities.AgentStep.update(stepId, updates);
   };
 
-  const handleSend = async (text, mode) => {
+  const handleSend = async (text, mode, attachments = []) => {
+    const normalizedAttachments = await Promise.all(
+      attachments.map(async ({ file }) => {
+        if (!file) return null;
+        const isText = file.type.startsWith("text/") || /\.(md|txt|csv|json|xml|log)$/i.test(file.name);
+        let extractedText = "";
+        if (isText && typeof file.text === "function") {
+          extractedText = (await file.text()).slice(0, 12000);
+        }
+        return {
+          name: file.name,
+          type: file.type || "application/octet-stream",
+          size: file.size,
+          extractedText,
+        };
+      }),
+    ).then((items) => items.filter(Boolean));
+    const attachmentContext = normalizedAttachments.length
+      ? `\n\nATTACHED FILES:\n${normalizedAttachments.map((item) =>
+          `- ${item.name} (${item.type}, ${item.size} bytes)${item.extractedText ? `\\n${item.extractedText}` : ""}`
+        ).join("\n")}`
+      : "";
+    const requestText = `${text}${attachmentContext}`;
     let convId = activeConversationId;
 
     // Auto-create conversation if none selected
@@ -152,7 +174,10 @@ Return 3-7 steps. Be specific to the actual task.`;
       conversation_id: convId,
       role: "user",
       content: text,
-      metadata: { mode },
+      metadata: {
+        mode,
+        attachments: normalizedAttachments.map(({ name, type, size }) => ({ name, type, size })),
+      },
     });
     setMessages((prev) => [...prev, userMsg]);
     setIsThinking(true);
@@ -161,7 +186,7 @@ Return 3-7 steps. Be specific to the actual task.`;
     const startTime = Date.now();
 
     // Step 1: Generate plan
-    const planSteps = await generatePlan(text, mode, convId);
+    const planSteps = await generatePlan(requestText, mode, convId);
 
     // Check for memory candidates
     const memCandidate = extractMemoryCandidate(text);
@@ -244,13 +269,13 @@ Return 3-7 steps. Be specific to the actual task.`;
     // Step 3: Generate the final response (the last plan step's actual execution)
     let userPrompt = "";
     if (mode === "research") {
-      userPrompt = `${fullSystemPrompt}\n\nCONVERSATION HISTORY:\n${conversationHistory}\n\nThe user wants DEEP RESEARCH on the following topic. Search the web, gather multiple sources, synthesize findings, and cite your sources with URLs. Be thorough and factual.\n\nRESEARCH REQUEST: ${text}\n\nProvide your response with:\n1. A clear reasoning chain of your research process\n2. Key findings with citations\n3. A synthesis/summary`;
+      userPrompt = `${fullSystemPrompt}\n\nCONVERSATION HISTORY:\n${conversationHistory}\n\nThe user wants DEEP RESEARCH on the following topic. Search the web, gather multiple sources, synthesize findings, and cite your sources with URLs. Be thorough and factual.\n\nRESEARCH REQUEST: ${requestText}\n\nProvide your response with:\n1. A clear reasoning chain of your research process\n2. Key findings with citations\n3. A synthesis/summary`;
     } else if (mode === "code") {
-      userPrompt = `${fullSystemPrompt}\n\nCONVERSATION HISTORY:\n${conversationHistory}\n\nThe user wants CODE GENERATION. Write clean, production-ready, well-commented code.\n\nCODE REQUEST: ${text}`;
+      userPrompt = `${fullSystemPrompt}\n\nCONVERSATION HISTORY:\n${conversationHistory}\n\nThe user wants CODE GENERATION. Write clean, production-ready, well-commented code.\n\nCODE REQUEST: ${requestText}`;
     } else if (mode === "self_improve") {
-      userPrompt = `${fullSystemPrompt}\n\nCONVERSATION HISTORY:\n${conversationHistory}\n\nThe user has asked you to SELF-IMPROVE. Analyze your current system prompt and recent conversation performance. Identify:\n1. Areas where your responses could be better\n2. Missing capabilities or knowledge gaps\n3. Suggested improvements to your system prompt\n4. A revised system prompt if improvements are needed\n\nBe specific and actionable in your self-analysis.\n\nCurrent system prompt:\n${systemPromptContent}\n\nUser request: ${text}`;
+      userPrompt = `${fullSystemPrompt}\n\nCONVERSATION HISTORY:\n${conversationHistory}\n\nThe user has asked you to SELF-IMPROVE. Analyze your current system prompt and recent conversation performance. Identify:\n1. Areas where your responses could be better\n2. Missing capabilities or knowledge gaps\n3. Suggested improvements to your system prompt\n4. A revised system prompt if improvements are needed\n\nBe specific and actionable in your self-analysis.\n\nCurrent system prompt:\n${systemPromptContent}\n\nUser request: ${requestText}`;
     } else {
-      userPrompt = `${fullSystemPrompt}\n\nCONVERSATION HISTORY:\n${conversationHistory}\n\nUser: ${text}`;
+      userPrompt = `${fullSystemPrompt}\n\nCONVERSATION HISTORY:\n${conversationHistory}\n\nUser: ${requestText}`;
     }
 
     let response;
@@ -306,7 +331,7 @@ Return 3-7 steps. Be specific to the actual task.`;
     let wasRevised = false;
     try {
       verificationResult = await base44.functions.invoke("responseVerification", {
-        request: text,
+        request: requestText,
         response: content,
         reasoningChain: reasoning,
         context: mode === "research" ? JSON.stringify(sources) : conversationHistory,
@@ -435,8 +460,9 @@ Return 3-7 steps. Be specific to the actual task.`;
             {messages.length === 0 ? (
               <div className="h-full flex items-center justify-center">
                 <div className="text-center max-w-md">
-                  <div className="w-16 h-16 rounded-2xl bg-teal-500/10 border border-teal-500/20 flex items-center justify-center mx-auto mb-6">
-                    <span className="text-teal-400 font-black text-2xl">Ω</span>
+                  <div className="mb-6 flex items-center justify-center gap-2 text-xs font-mono uppercase tracking-[0.18em] text-teal-300/80">
+                    <span className="h-1.5 w-1.5 rounded-full bg-teal-300 shadow-[0_0_12px_rgba(94,234,212,0.8)]" />
+                    Workspace ready
                   </div>
                   <h2 className="text-white text-xl font-bold mb-2">What can I help you with?</h2>
                   <p className="text-white/30 text-sm mb-8">
@@ -476,7 +502,7 @@ Return 3-7 steps. Be specific to the actual task.`;
 
           {/* Input */}
           <div className="px-4 md:px-8 lg:px-12 pb-4 pt-2">
-            <ChatInput onSend={handleSend} disabled={isThinking} />
+            <ChatInput onSend={handleSend} disabled={isThinking} sandboxAvailable={isThinking || liveTranscript.length > 0} />
             <p className="text-center text-[10px] text-white/10 mt-2 font-mono">
               Omega v1.0 — Super Agent by Thomas Lee Harvey
             </p>
@@ -499,10 +525,10 @@ Return 3-7 steps. Be specific to the actual task.`;
         {/* Workspace panel — mobile: floating toggle + full-screen overlay */}
         <button
           onClick={() => setShowMobileWorkspace(true)}
-          className="lg:hidden fixed bottom-24 right-4 z-40 w-12 h-12 rounded-full bg-teal-500 text-black flex items-center justify-center shadow-lg shadow-teal-500/30"
-          title="Omega Sandbox"
+          className="lg:hidden fixed bottom-24 right-4 z-40 rounded-xl border border-teal-300/30 bg-[#122321] px-3 py-2 text-xs font-medium text-teal-200 shadow-lg shadow-teal-500/10 transition hover:bg-[#18332f]"
+          title="View live activity"
         >
-          <span className="font-black text-lg">Ω</span>
+          View activity
         </button>
 
         {showMobileWorkspace && (
