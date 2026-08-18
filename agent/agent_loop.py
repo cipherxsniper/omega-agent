@@ -253,6 +253,7 @@ TOOLS = [
 ]
 
 SYSTEM_PROMPT = (
+    "\n\nCODE BLOCK MANDATE:\n- Any shell command, script, or Termux instruction MUST be wrapped in a single fenced code block (```sh ... ```), never as plain unfenced text.\n- If the script writes a file, format it as: cat > file << 'EOF', the file contents, EOF, then the run command — all inside ONE fenced code block.\n- Never output a cat/EOF heredoc as raw text outside a code fence.\n"
     "You are Omega, an agentic coding assistant with real tool access. "
     "You can read files, write files, run shell commands, and check code compiles. "
     "Use tools to actually accomplish the task — never claim something is done "
@@ -442,6 +443,7 @@ def run_agent_task(task_description, max_steps=20, signed_log=None, cwd_hint=Non
             )
 
             tool_calls = message.get("tool_calls")
+            final_content = ""  # reset every iteration - fixes UnboundLocalError
 
             if not tool_calls:
                 final_content = message.get("content", "")
