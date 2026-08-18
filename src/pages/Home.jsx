@@ -171,17 +171,19 @@ Return 3-7 steps. Be specific to the actual task.`;
         if (isText && typeof file.text === "function") {
           extractedText = (await file.text()).slice(0, 12000);
         }
+        const isImage = file.type.startsWith("image/");
         return {
           name: file.name,
           type: file.type || "application/octet-stream",
           size: file.size,
+          isImage,
           extractedText,
         };
       }),
     ).then((items) => items.filter(Boolean));
     const attachmentContext = normalizedAttachments.length
       ? `\n\nATTACHED FILES:\n${normalizedAttachments.map((item) =>
-          `- ${item.name} (${item.type}, ${item.size} bytes)${item.extractedText ? `\\n${item.extractedText}` : ""}`
+          `- ${item.name} (${item.type}, ${item.size} bytes)${item.isImage ? "\\n[PHOTO ATTACHED: visual bytes are preserved in the composer; this backend must advertise vision support before claiming image analysis.]" : ""}${item.extractedText ? `\\n${item.extractedText}` : ""}`
         ).join("\n")}`
       : "";
     const continuityNote = continuityContext
@@ -376,7 +378,10 @@ Return 3-7 steps. Be specific to the actual task.`;
     const responseTime = Date.now() - startTime;
 
     // Parse response
-    let content = typeof response === "string" ? response : response.result || response.response || JSON.stringify(response);
+    let content = typeof response === "string" ? response : response.result || response.response || "";
+    if (!String(content).trim()) {
+      content = response?.error || "Omega returned no final text. Review the live workspace transcript and retry once the backend is reachable.";
+    }
     const reasoning = typeof response === "object" ? response.reasoning : null;
     const sources = typeof response === "object" && response.sources ? response.sources : [];
 

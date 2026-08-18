@@ -135,9 +135,10 @@ const streamAgentBackend = ({ prompt, onStep }) => {
         const step = JSON.parse(event.data);
         if (step.done) {
           es.close();
-          const finalEntry = [...transcript].reverse().find((e) => e.final);
-          const finalText = finalEntry ? finalEntry.content : "(no final response — see transcript)";
-          resolve({ data: { result: finalText, transcript } });
+          const finalEntry = [...transcript].reverse().find((e) => e.final && typeof e.content === "string");
+          const finalText = step.response || finalEntry?.content ||
+            (step.error ? `Agent job failed: ${step.error}` : "Omega completed without a final response. Review the live transcript for details.");
+          resolve({ data: { result: finalText, transcript, error: step.error || null } });
           return;
         }
         transcript.push(step);
