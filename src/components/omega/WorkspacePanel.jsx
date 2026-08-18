@@ -220,22 +220,25 @@ export default function WorkspacePanel({ conversationId, isThinking, onClose, tr
           {activeTab === "terminal" && (
             <motion.div key="terminal" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="h-full">
               <div className="h-full bg-black font-mono text-xs p-3 overflow-y-auto">
-                <div className="text-white/20 mb-2">Omega Terminal — omega@workspace:~$</div>
-                {steps.filter((s) => s.tool === "terminal").length === 0 ? (
-                  <p className="text-white/20">$ waiting for command...</p>
+                <div className="text-white/20 mb-2">Omega Terminal — omegaagent$</div>
+                {steps.length === 0 ? (
+                  <p className="text-white/20">omegaagent$ waiting for command...</p>
                 ) : (
-                  steps.filter((s) => s.tool === "terminal").map((s) => (
+                  steps.map((s) => (
                     <div key={s.id} className="mb-2">
-                      <div className="text-teal-400">$ {s.title}</div>
+                      <div className="text-teal-400">
+                        omegaagent$ <span className="text-white/70">{s.title}</span>
+                        {s.description && <span className="text-white/30"> — {s.description}</span>}
+                      </div>
                       {s.tool_output && (
                         <pre className="text-white/50 whitespace-pre-wrap mt-0.5">{s.tool_output}</pre>
                       )}
                     </div>
                   ))
                 )}
-                {isThinking && runningStep?.tool === "terminal" && (
+                {isThinking && runningStep && (
                   <div className="text-teal-400 flex items-center gap-1">
-                    $ <span className="animate-pulse">█</span>
+                    omegaagent$ <span className="animate-pulse">█</span>
                   </div>
                 )}
               </div>

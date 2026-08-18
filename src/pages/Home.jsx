@@ -26,6 +26,7 @@ export default function Home() {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [activePanel, setActivePanel] = useState(null); // jobs, memory, github, system
   const messagesEndRef = useRef(null);
+  const [liveTranscript, setLiveTranscript] = useState([]);
 
   useEffect(() => {
     if (!showIntro) loadConversations();
@@ -154,6 +155,7 @@ Return 3-7 steps. Be specific to the actual task.`;
     });
     setMessages((prev) => [...prev, userMsg]);
     setIsThinking(true);
+    setLiveTranscript([]);
 
     const startTime = Date.now();
 
@@ -273,6 +275,7 @@ Return 3-7 steps. Be specific to the actual task.`;
             },
           },
         },
+        onStep: (step) => setLiveTranscript((prev) => [...prev, step]),
       });
       response = response.data || response;
     } else {
@@ -285,6 +288,7 @@ Return 3-7 steps. Be specific to the actual task.`;
             response: { type: "string" },
           },
         },
+        onStep: (step) => setLiveTranscript((prev) => [...prev, step]),
       });
       response = response.data || response;
     }
@@ -483,7 +487,11 @@ Return 3-7 steps. Be specific to the actual task.`;
           <WorkspacePanel
             conversationId={activeConversationId}
             isThinking={isThinking}
-            transcript={[...messages].reverse().find((m) => m.role === "assistant" && m.transcript)?.transcript}
+            transcript={
+              isThinking && liveTranscript.length > 0
+                ? liveTranscript
+                : [...messages].reverse().find((m) => m.role === "assistant" && m.transcript)?.transcript
+            }
           />
         </div>
       </div>
