@@ -171,6 +171,12 @@ export default function WorkspacePanel({ conversationId, isThinking, onClose, tr
                       {step.description && (
                         <p className="text-[11px] text-white/30 ml-4">{step.description}</p>
                       )}
+                      {step.decision_provenance && (
+                        <div className="ml-4 mt-1 flex items-center gap-2 text-[9px] font-mono uppercase tracking-[0.12em] text-teal-200/45">
+                          <span className="rounded border border-teal-300/15 px-1.5 py-0.5">proof linked</span>
+                          {step.decision_provenance.context_hash && <span>ctx:{step.decision_provenance.context_hash.slice(0, 8)}</span>}
+                        </div>
+                      )}
                       {step.duration_ms && step.status === "completed" && (
                         <p className="text-[9px] text-white/15 ml-4 font-mono">{(step.duration_ms / 1000).toFixed(1)}s</p>
                       )}
