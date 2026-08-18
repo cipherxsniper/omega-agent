@@ -104,6 +104,7 @@ const callGroqComplete = async ({ prompt, response_json_schema, add_context_from
   }
 
   let systemPrompt = "You are a helpful assistant.";
+  systemPrompt += "\n\nCODE BLOCK MANDATE:\n- Any shell command, script, or Termux instruction MUST be wrapped in a single fenced code block (```sh ... ```), never as plain unfenced text.\n- If the script writes a file, format it as: cat > file << 'EOF', the file contents, EOF, then the run command — all inside ONE fenced code block.\n- Never output a cat/EOF heredoc as raw text outside a code fence.\n";
   if (response_json_schema) {
     systemPrompt += ` Respond ONLY with valid JSON matching this schema, no markdown fences, no extra text: ${JSON.stringify(response_json_schema)}`;
   }
