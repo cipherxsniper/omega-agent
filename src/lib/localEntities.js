@@ -74,7 +74,6 @@ const makeEntity = (name) => ({
     return { success: true };
   },
   subscribe: (callback) => {
-    // no realtime backend in local mode; no-op unsubscribe
     return () => {};
   },
 });
@@ -83,71 +82,89 @@ export const entities = new Proxy({}, {
   get: (_target, name) => makeEntity(name),
 });
 
+// --- Real backend call, replacing the old direct-from-browser Groq call ---
+// No API key here — the key lives only on the server now (chat_server.py).
+const AGENT_BACKEND_URL = import.meta.env.VITE_AGENT_BACKEND_URL || "http://localhost:8420";
+
+const callAgentBackend = async ({ prompt }) => {
+  try {
+    const res = await fetch(`${AGENT_BACKEND_URL}/api/chat`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ message: prompt }),
+    });
+
+    if (!res.ok) {
+      const err = await res.text();
+      return { data: { error: `Agent backend error: ${err}` } };
+    }
+
+    const json = await res.json();
+    return { data: { result: json.response, transcript: json.transcript } };
+  } catch (e) {
+    return { data: { error: `Could not reach agent backend at ${AGENT_BACKEND_URL}: ${e.message}` } };
+  }
+};
+
+// Live-streaming path — uses the job/start + job/stream SSE pipeline so the
+// caller gets each transcript step as it happens (for driving WorkspacePanel
+// in real time) instead of waiting for the whole task to finish.
+const streamAgentBackend = ({ prompt, onStep }) => {
+  return new Promise(async (resolve) => {
+    try {
+      const startRes = await fetch(`${AGENT_BACKEND_URL}/api/job/start`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ message: prompt }),
+      });
+      if (!startRes.ok) {
+        const err = await startRes.text();
+        resolve({ data: { error: `Agent backend error: ${err}` } });
+        return;
+      }
+      const { job_id } = await startRes.json();
+      if (!job_id) {
+        resolve({ data: { error: "Agent backend did not return a job_id" } });
+        return;
+      }
+
+      const transcript = [];
+      const es = new EventSource(`${AGENT_BACKEND_URL}/api/job/stream/${job_id}`);
+
+      es.onmessage = (event) => {
+        const step = JSON.parse(event.data);
+        if (step.done) {
+          es.close();
+          const finalEntry = [...transcript].reverse().find((e) => e.final);
+          const finalText = finalEntry ? finalEntry.content : "(no final response — see transcript)";
+          resolve({ data: { result: finalText, transcript } });
+          return;
+        }
+        transcript.push(step);
+        if (onStep) onStep(step);
+      };
+
+      es.onerror = () => {
+        es.close();
+        resolve({ data: { error: "Lost connection to agent backend stream." } });
+      };
+    } catch (e) {
+      resolve({ data: { error: `Could not reach agent backend at ${AGENT_BACKEND_URL}: ${e.message}` } });
+    }
+  });
+};
+
 export const functions = {
-  invoke: async (fnName) => {
+  invoke: async (fnName, payload) => {
+    if (fnName === "groqComplete") {
+      const p = payload || {};
+      if (p.onStep) {
+        const { onStep, ...rest } = p;
+        return streamAgentBackend({ ...rest, onStep });
+      }
+      return callAgentBackend(p);
+    }
     console.warn(`[local mode] functions.invoke("${fnName}") skipped — no backend connected.`);
     return { data: { error: `Function "${fnName}" is not available in local mode.` } };
   },
-};
-
-// --- Direct Groq API call, replacing the old base44 backend function ---
-const GROQ_API_KEY = import.meta.env.VITE_GROQ_API_KEY;
-const GROQ_MODEL = "openai/gpt-oss-120b";
-
-const callGroqComplete = async ({ prompt, response_json_schema, add_context_from_internet }) => {
-  if (!GROQ_API_KEY) {
-    return { data: { error: "Missing VITE_GROQ_API_KEY in .env.local" } };
-  }
-
-  if (add_context_from_internet) {
-    console.warn("[local mode] add_context_from_internet is not supported — Groq direct calls have no web access.");
-  }
-
-  let systemPrompt = "You are a helpful assistant.";
-  systemPrompt += "\n\nCODE BLOCK MANDATE:\n- Any shell command, script, or Termux instruction MUST be wrapped in a single fenced code block (```sh ... ```), never as plain unfenced text.\n- If the script writes a file, format it as: cat > file << 'EOF', the file contents, EOF, then the run command — all inside ONE fenced code block.\n- Never output a cat/EOF heredoc as raw text outside a code fence.\n";
-  if (response_json_schema) {
-    systemPrompt += ` Respond ONLY with valid JSON matching this schema, no markdown fences, no extra text: ${JSON.stringify(response_json_schema)}`;
-  }
-
-  const res = await fetch("https://api.groq.com/openai/v1/chat/completions", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "Authorization": `Bearer ${GROQ_API_KEY}`,
-    },
-    body: JSON.stringify({
-      model: GROQ_MODEL,
-      messages: [
-        { role: "system", content: systemPrompt },
-        { role: "user", content: prompt },
-      ],
-      ...(response_json_schema ? { response_format: { type: "json_object" } } : {}),
-    }),
-  });
-
-  if (!res.ok) {
-    const err = await res.text();
-    return { data: { error: `Groq API error: ${err}` } };
-  }
-
-  const json = await res.json();
-  const content = json.choices?.[0]?.message?.content || "";
-
-  if (response_json_schema) {
-    try {
-      return { data: JSON.parse(content) };
-    } catch {
-      return { data: { error: "Failed to parse JSON from model output", raw: content } };
-    }
-  }
-
-  return { data: { result: content.trim() } };
-};
-
-functions.invoke = async (fnName, payload) => {
-  if (fnName === "groqComplete") {
-    return callGroqComplete(payload || {});
-  }
-  console.warn(`[local mode] functions.invoke("${fnName}") skipped — no backend connected.`);
-  return { data: { error: `Function "${fnName}" is not available in local mode.` } };
 };
