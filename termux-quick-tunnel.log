@@ -74,3 +74,4 @@
 2026-08-18T12:00:22Z ERR Request failed error="Unable to reach the origin service. The service may be down or it may not be responding to traffic from cloudflared: dial tcp 127.0.0.1:8420: connect: connection refused" connIndex=0 dest=https://strips-received-grip-flex.trycloudflare.com/ event=0 ip=2606:4700:a8::7 type=http
 2026-08-18T12:03:09Z ERR Failed to refresh DNS local resolver error="lookup region1.v2.argotunnel.com: i/o timeout"
 2026-08-18T12:18:14Z ERR Failed to refresh DNS local resolver error="lookup region1.v2.argotunnel.com: i/o timeout"
+2026-08-18T12:33:19Z ERR Failed to refresh DNS local resolver error="lookup region1.v2.argotunnel.com: i/o timeout"
