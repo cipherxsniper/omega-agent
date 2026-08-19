@@ -526,6 +526,7 @@ Return 3-7 steps. Be specific to the actual task.`;
     }
 
     setMessages((prev) => [...prev, assistantMsg]);
+    speakText(content);
     setIsThinking(false);
     clearContinuityCheckpoint(convId);
     setMission((current) => current ? { ...current, completedAt: new Date().toISOString() } : current);
