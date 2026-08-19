@@ -1,21 +1,19 @@
-import { useState } from "react";
-
 /**
- * Voice on/off toggle. When on, the parent should call speakText(text)
- * after each assistant response finishes (see hook below).
+ * Voice on/off toggle. When on, the parent calls speakText(text) after
+ * each assistant response finishes (see src/hooks/useVoice.js).
  */
 export default function VoiceToggle({ enabled, onToggle }) {
   return (
     <button
       onClick={() => onToggle(!enabled)}
-      className={`flex items-center gap-1.5 px-2 py-1 rounded-md text-xs border transition-colors ${
+      className={`flex items-center justify-center h-7 w-7 rounded-md border transition-colors ${
         enabled
-          ? "border-teal-400 text-teal-300 bg-teal-500/10"
-          : "border-white/10 text-white/40"
+          ? "border-teal-300/20 bg-teal-300 text-black"
+          : "border-teal-300/15 text-teal-200/45"
       }`}
       title={enabled ? "Voice: on" : "Voice: off"}
     >
-      {enabled ? "🔊" : "🔇"}
+      <span className="text-xs font-bold">{enabled ? "ON" : "OFF"}</span>
     </button>
   );
 }
