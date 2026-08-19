@@ -9,6 +9,7 @@ import MessageBubble from "@/components/omega/MessageBubble";
 import TypingIndicator from "@/components/omega/TypingIndicator";
 import ChatInput from "@/components/omega/ChatInput";
 import WorkspacePanel from "@/components/omega/WorkspacePanel";
+import LiveActivityBar from "../components/omega/LiveActivityBar";
 import JobsPanel from "@/components/omega/JobsPanel";
 import MemoryPanel from "@/components/omega/MemoryPanel";
 import GitHubPanel from "@/components/omega/GitHubPanel";
