@@ -26,7 +26,14 @@ _model = None
 def _get_model():
     global _model
     if _model is None:
-        from chatterbox.tts import ChatterboxTTS
+        try:
+            from chatterbox.tts import ChatterboxTTS
+        except ImportError:
+            raise RuntimeError(
+                "chatterbox-tts is not installed on this backend. "
+                "TTS needs a separate host with more build memory — "
+                "not this free-tier Render service."
+            )
         _model = ChatterboxTTS.from_pretrained(device="cpu")
     return _model
 
