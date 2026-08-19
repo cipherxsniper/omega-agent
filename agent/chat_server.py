@@ -24,6 +24,9 @@ logging.basicConfig(level=logging.INFO)
 
 app = Flask(__name__)
 
+from agent.tts_service import tts_bp
+app.register_blueprint(tts_bp)
+
 # Allow only the deployed Omega Pages origins. Override with a comma-separated
 # OMEGA_ALLOWED_ORIGINS value for a custom deployment; never use '*'.
 ALLOWED_ORIGINS = [
