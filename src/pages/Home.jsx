@@ -9,7 +9,9 @@ import MessageBubble from "@/components/omega/MessageBubble";
 import TypingIndicator from "@/components/omega/TypingIndicator";
 import ChatInput from "@/components/omega/ChatInput";
 import WorkspacePanel from "@/components/omega/WorkspacePanel";
-import LiveActivityBar from "../components/omega/LiveActivityBar";
+import LiveActivityBar from "@/components/omega/LiveActivityBar";
+import VoiceToggle from "@/components/omega/VoiceToggle";
+import { useVoice } from "@/hooks/useVoice";
 import JobsPanel from "@/components/omega/JobsPanel";
 import MemoryPanel from "@/components/omega/MemoryPanel";
 import GitHubPanel from "@/components/omega/GitHubPanel";
@@ -49,6 +51,7 @@ const buildMission = async (text, mode, attachments) => {
 };
 
 export default function Home() {
+  const { voiceEnabled, setVoicePref, speakText } = useVoice();
   const [showIntro, setShowIntro] = useState(true);
   const [conversations, setConversations] = useState([]);
   const [activeConversationId, setActiveConversationId] = useState(null);
@@ -641,6 +644,8 @@ Return 3-7 steps. Be specific to the actual task.`;
 
         {/* Workspace panel — desktop: always visible side panel */}
         <div className="w-[420px] shrink-0 hidden lg:block">
+          <VoiceToggle enabled={voiceEnabled} onToggle={setVoicePref} />
+          <LiveActivityBar steps={[]} isActive={false} onExpand={() => {}} />
           <WorkspacePanel
             conversationId={activeConversationId}
             isThinking={isThinking}
