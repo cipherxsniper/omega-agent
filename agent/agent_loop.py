@@ -27,6 +27,7 @@ from agent.core.action_engine import Action, ActionNode, ActionExecutor, ActionV
 from agent.self_extend import propose_tool
 from lib.omega_proof import sign_event
 from agent.decision_provenance import build_decision_provenance
+from agent.web_search_tool import web_search
 
 logger = logging.getLogger("OmegaAgentLoop")
 RUNTIME_LOG_DIR = os.path.expanduser("~/.omega/logs")
