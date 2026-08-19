@@ -635,6 +635,18 @@ Return 3-7 steps. Be specific to the actual task.`;
 
           {/* Input */}
           <div className="px-4 md:px-8 lg:px-12 pb-4 pt-2">
+            <div className="flex items-center justify-end mb-1">
+              <VoiceToggle enabled={voiceEnabled} onToggle={setVoicePref} />
+            </div>
+            <LiveActivityBar
+              steps={liveTranscript.map((s, i) => ({
+                id: s.id || i,
+                label: s.title || s.name || s.role || "Working",
+                status: s.status || (isThinking ? "running" : "done"),
+              }))}
+              isActive={isThinking}
+              onExpand={() => setShowMobileWorkspace(true)}
+            />
             <ChatInput onSend={handleSend} disabled={isThinking} workspaceAvailable={isThinking || liveTranscript.length > 0} onOpenWorkspace={() => setShowMobileWorkspace(true)} />
             <p className="text-center text-[10px] text-white/10 mt-2 font-mono">
               Omega v1.0 — Super Agent by Thomas Lee Harvey
@@ -644,8 +656,6 @@ Return 3-7 steps. Be specific to the actual task.`;
 
         {/* Workspace panel — desktop: always visible side panel */}
         <div className="w-[420px] shrink-0 hidden lg:block">
-          <VoiceToggle enabled={voiceEnabled} onToggle={setVoicePref} />
-          <LiveActivityBar steps={[]} isActive={false} onExpand={() => {}} />
           <WorkspacePanel
             conversationId={activeConversationId}
             isThinking={isThinking}
